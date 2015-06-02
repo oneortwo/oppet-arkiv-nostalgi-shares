@@ -23,12 +23,12 @@ app.get('/', function(request, response) {
 
 app.get('/data', function(request, response) {
   doAsyncGet(function(json) {
-    console.log("Sending response");
     response.contentType('application/json');
     response.send(JSON.stringify(json));
   });
 });
 
+var yearWithShares = [];
 
 function doAsyncGet(callback) {
   async.map(facebookUrls, fetch, function(err, results){
@@ -39,14 +39,23 @@ function doAsyncGet(callback) {
         results.map(function (entry, index) {
             var sharesRaw = JSON.parse(entry).shares;
             var shares = sharesRaw ? sharesRaw : 0;
-            sum += shares;
             var year = yearRange[index];
-            putEntry(year, shares);
+            
+            sum += shares;
+
+            yearWithShares.push({
+              "year": year,
+              "shares": shares
+            });
         });
+
+        var generalShares = _.find(yearWithShares, function(entry){ return entry.year  === '' });
+        yearWithShares.sort(function(a,b) { return parseFloat(b.shares) - parseFloat(a.shares) } );
 
         var json={
           "sum": sum,
-          "general": yearWithShares[""], 
+          "popular": yearWithShares[0],
+          "general": generalShares,
           "years": yearWithShares
         }
         
@@ -59,7 +68,7 @@ app.listen(app.get('port'), function() {
   console.log('Node app is running on port', app.get('port'));
 });
 
-var yearWithShares = {}
+
 
 var yearRange = _.range(1890, 2006);
 yearRange.unshift("");
@@ -67,10 +76,6 @@ yearRange.unshift("");
 var facebookUrls = yearRange.map(function(year){
   return host + baseUrl + "/" + year;
 });
-
-function putEntry(year, shares) {
-  yearWithShares[year] = shares;
-}
 
 var fetch = function(file, cb){
   request.get(file, function(err,response,body){
