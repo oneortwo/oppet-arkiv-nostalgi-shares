@@ -3,10 +3,15 @@ var request = require('request');
 var async   = require('async');
 var _       = require("underscore");
 var exphbs = require('express-handlebars');
+var NodeCache = require( "node-cache" );
 
 var host    = "http://graph.facebook.com/?id=";
 var baseUrl = "http://www.oppetarkiv.se/nostalgi";
+var ttl = 3600;
+var JSON_CACHE_KEY = "key-full-json";
+
 var app = express();
+var cache = new NodeCache({stdTTL: ttl});
 
 app.engine('.hbs', exphbs());
 app.set('view engine', '.hbs');
@@ -16,15 +21,41 @@ app.use(express.static(__dirname + '/public'));
 
 
 app.get('/', function(request, response) {
-  doAsyncGet(function(json) {
-    response.render('index', { body: json.sum });
-  });
+  var renderTemplate = function(json) {
+    response.render('index', { body: json });
+  };
+
+  var cached = cache.get(JSON_CACHE_KEY);
+  if (cached == undefined ){
+    doAsyncGet(renderTemplate);
+  } else {
+    console.log("Used cached json");
+    renderTemplate(cached);
+  }
 });
 
 app.get('/data', function(request, response) {
-  doAsyncGet(function(json) {
+  var rederFunction = function(json) {
     response.contentType('application/json');
     response.send(JSON.stringify(json));
+  };
+
+  var cached = cache.get(JSON_CACHE_KEY);
+  if (cached == undefined ){
+    doAsyncGet(rederFunction);
+  } else {
+    console.log("Used cached json");
+    rederFunction(cached);
+  }
+});
+
+app.get('/resetcache', function(request, response) {
+  cache.del(JSON_CACHE_KEY,  function( err, count ){
+    if( !err ){
+      response.send("Successfully deleted " + count); 
+    } else {
+      response.send("Delete failed " + err);
+    }
   });
 });
 
@@ -50,6 +81,8 @@ function doAsyncGet(callback) {
         });
 
         var generalShares = _.find(yearWithShares, function(entry){ return entry.year  === '' });
+        yearWithShares = _.without(yearWithShares, function(entry){ return entry.year  === '' });
+        
         yearWithShares.sort(function(a,b) { return parseFloat(b.shares) - parseFloat(a.shares) } );
 
         var json={
@@ -59,6 +92,13 @@ function doAsyncGet(callback) {
           "years": yearWithShares
         }
         
+        cache.set(JSON_CACHE_KEY, json, function( err, success ){
+          if( !err && success ){
+            console.log("Updated cached json");
+          } else {
+            console.err("FAILED in updating cached json");
+          }
+        });
         callback(json);
       }
   });
